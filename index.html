@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo Sharing App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }
+        .upload-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .gallery {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        .thumbnail {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+            width: 200px;
+        }
+        .thumbnail:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .thumbnail img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 3px;
+        }
+        .thumbnail p {
+            margin: 5px 0;
+            font-size: 0.9em;
+            word-break: break-all;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            display: none;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        .progress-bar {
+            height: 10px;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .progress {
+            height: 100%;
+            background-color: #007bff;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #0069d9;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        input[type="file"] {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Photo Sharing App</h1>
+    
+    <div class="upload-section">
+        <h2>Upload an Image</h2>
+        <input type="file" id="uploadFile" accept="image/*">
+        <button id="uploadButton" onclick="uploadImage()">Upload</button>
+        <div id="status" class="status"></div>
+        <div id="progressContainer" style="display: none;">
+            <div class="progress-bar">
+                <div id="progressBar" class="progress"></div>
+            </div>
+            <div id="progressText">0%</div>
+        </div>
+    </div>
+
+    <h2>Gallery</h2>
+    <div id="gallery" class="gallery">
+        <p>Loading images...</p>
+    </div>
+
+    <script>
+        // Replace these with your actual API Gateway endpoint
+        const apiEndpoint = "https://u9o2qasnw9.execute-api.eu-west-1.amazonaws.com/test";
+        
+        // DOM elements
+        const uploadButton = document.getElementById("uploadButton");
+        const progressContainer = document.getElementById("progressContainer");
+        const progressBar = document.getElementById("progressBar");
+        const progressText = document.getElementById("progressText");
+        
+        async function uploadImage() {
+            const fileInput = document.getElementById("uploadFile");
+            
+            if (!fileInput.files.length) {
+                showStatus("Please select a file first", "error");
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            
+            // Disable the upload button during upload
+            uploadButton.disabled = true;
+            
+            try {
+                // Step 1: Get a presigned POST URL from our API
+                showStatus("Preparing upload...", "info");
+                
+                const presignedUrlResponse = await fetch(`${apiEndpoint}/presigned-url`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    },
+                    mode: "cors",
+                    body: JSON.stringify({
+                        fileName: file.name,
+                        fileType: file.type
+                    })
+                });
+                
+                if (!presignedUrlResponse.ok) {
+                    const errorText = await presignedUrlResponse.text();
+                    throw new Error(`Failed to get upload URL (${presignedUrlResponse.status}): ${errorText}`);
+                }
+                
+                const presignedData = await presignedUrlResponse.json();
+                const { uploadURL, fields, fileName } = presignedData;
+                
+                if (!uploadURL || !fields) {
+                    throw new Error("Invalid response: Missing upload URL or fields");
+                }
+                
+                console.log("Presigned POST data:", presignedData);
+                
+                // Step 2: Upload the file using presigned POST (FormData)
+                showStatus("Uploading image...", "info");
+                progressContainer.style.display = "block";
+                
+                // Create FormData with the presigned POST fields
+                const formData = new FormData();
+                
+                // Add all the fields from the presigned POST first
+                Object.keys(fields).forEach(key => {
+                    formData.append(key, fields[key]);
+                });
+                
+                // Add the file last (this is important for S3)
+                formData.append('file', file);
+                
+                // Use XMLHttpRequest for upload progress tracking
+                await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    
+                    xhr.upload.addEventListener("progress", (event) => {
+                        if (event.lengthComputable) {
+                            const percentComplete = Math.round((event.loaded / event.total) * 100);
+                            progressBar.style.width = percentComplete + "%";
+                            progressText.textContent = percentComplete + "%";
+                        }
+                    });
+                    
+                    xhr.addEventListener("load", () => {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            resolve();
+                        } else {
+                            console.error("S3 Upload Error Response:", xhr.responseText);
+                            reject(new Error(`S3 Upload Error: ${xhr.status} - ${xhr.statusText}`));
+                        }
+                    });
+                    
+                    xhr.addEventListener("error", (e) => {
+                        console.error("Network error during upload:", e);
+                        reject(new Error("Network error occurred during upload to S3"));
+                    });
+                    
+                    xhr.addEventListener("abort", () => {
+                        reject(new Error("Upload was aborted"));
+                    });
+                    
+                    // Use POST method for presigned POST
+                    xhr.open("POST", uploadURL);
+                    
+                    // Don't set Content-Type header - let the browser set it with boundary for FormData
+                    // xhr.setRequestHeader("Content-Type", "multipart/form-data"); // DON'T do this
+                    
+                    // Send the FormData
+                    xhr.send(formData);
+                });
+                
+                showStatus("Upload successful! Processing image...", "success");
+                
+                // Step 3: Wait for the Lambda function to process the image (create thumbnail)
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                
+                // Step 4: Refresh the gallery to show the new image
+                await loadGallery();
+                
+                showStatus("Image uploaded and processed successfully!", "success");
+                
+                // Clear the file input
+                fileInput.value = '';
+                
+            } catch (error) {
+                console.error("Upload error:", error);
+                showStatus("Upload failed: " + error.message, "error");
+            } finally {
+                // Re-enable the upload button
+                uploadButton.disabled = false;
+                
+                // Hide progress bar after a delay
+                setTimeout(() => {
+                    progressContainer.style.display = "none";
+                    progressBar.style.width = "0%";
+                    progressText.textContent = "0%";
+                }, 3000);
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById("status");
+            statusDiv.textContent = message;
+            statusDiv.style.display = "block";
+            statusDiv.className = "status " + type;
+        }
+
+        async function loadGallery() {
+            const gallery = document.getElementById("gallery");
+            gallery.innerHTML = "<p>Loading images...</p>";
+            
+            try {
+                // Fetch thumbnails from our API
+                const response = await fetch(`${apiEndpoint}/thumbnails`, {
+                    method: "GET",
+                    headers: {
+                        "Accept": "application/json"
+                    },
+                    mode: "cors" // Explicitly set CORS mode
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Failed to load images (${response.status})`);
+                }
+                
+                const apiData = await response.json();
+                
+                // Parse the body if it's a string (which it appears to be based on your API response)
+                let data;
+                if (typeof apiData.body === 'string') {
+                    data = JSON.parse(apiData.body);
+                } else {
+                    data = apiData.body;
+                }
+                
+                
+                if (data && data.thumbnails && data.thumbnails.length > 0) {
+                    gallery.innerHTML = "";
+                    
+                    // Sort thumbnails by last modified date (newest first)
+                    data.thumbnails.sort((a, b) => {
+                        return new Date(b.lastModified) - new Date(a.lastModified);
+                    });
+                    
+                    // Display thumbnails
+                    data.thumbnails.forEach(thumbnail => {
+                        const imgContainer = document.createElement("div");
+                        imgContainer.className = "thumbnail";
+                        
+                        // Extract original filename without the thumb- prefix
+                        const originalName = thumbnail.fileName.startsWith("thumb-") 
+                            ? thumbnail.fileName.substring(6) 
+                            : thumbnail.fileName;
+                        
+                        // Format the file size
+                        const fileSize = formatFileSize(thumbnail.size);
+                        
+                        // Create image element with error handling
+                        const img = document.createElement("img");
+                        img.alt = originalName;
+                        img.loading = "lazy";
+                        img.onerror = function() {
+                            this.onerror = null;
+                            this.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150' viewBox='0 0 150 150'%3E%3Crect width='150' height='150' fill='%23f5f5f5'/%3E%3Ctext x='50%25' y='50%25' font-family='Arial' font-size='14' text-anchor='middle' dominant-baseline='middle' fill='%23999'%3EImage Error%3C/text%3E%3C/svg%3E";
+                        };
+                        img.src = thumbnail.url;
+                        
+                        imgContainer.appendChild(img);
+                        imgContainer.innerHTML += `
+                            <p title="${originalName}">${truncateFilename(originalName, 20)}</p>
+                            <p>${fileSize}</p>
+                        `;
+                        
+                        gallery.appendChild(imgContainer);
+                    });
+                } else {
+                    gallery.innerHTML = "<p>No images yet. Upload some!</p>";
+                }
+            } catch (error) {
+                gallery.innerHTML = `<p>Error loading images: ${error.message}</p>`;
+            }
+        }
+        
+        // Helper function to truncate long filenames
+        function truncateFilename(filename, maxLength) {
+            if (filename.length <= maxLength) return filename;
+            
+            const extension = filename.split('.').pop();
+            const nameWithoutExt = filename.substring(0, filename.length - extension.length - 1);
+            
+            if (nameWithoutExt.length <= maxLength - 3) return filename;
+            
+            return nameWithoutExt.substring(0, maxLength - 3) + '...' + (extension ? '.' + extension : '');
+        }
+        
+        // Helper function to format file size
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + " B";
+            else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+            else return (bytes / 1048576).toFixed(1) + " MB";
+        }
+
+        // Load gallery when page loads
+        window.onload = loadGallery;
+    </script>
+</body>
+</html>
