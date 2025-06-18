@@ -40,10 +40,25 @@ This application allows users to upload images to an S3 bucket. When an image is
 ```json
 [
     {
-        "AllowedHeaders": ["*"],
-        "AllowedMethods": ["GET", "PUT", "POST", "HEAD"],
-        "AllowedOrigins": ["*"],
-        "ExposeHeaders": ["ETag", "x-amz-meta-custom-header", "x-amz-server-side-encryption", "x-amz-request-id", "x-amz-id-2"],
+        "AllowedHeaders": [
+            "*"
+        ],
+        "AllowedMethods": [
+            "GET",
+            "PUT",
+            "POST",
+            "HEAD"
+        ],
+        "AllowedOrigins": [
+            "*"
+        ],
+        "ExposeHeaders": [
+            "ETag",
+            "x-amz-meta-custom-header",
+            "x-amz-server-side-encryption",
+            "x-amz-request-id",
+            "x-amz-id-2"
+        ],
         "MaxAgeSeconds": 3600
     }
 ]
@@ -59,10 +74,23 @@ This application allows users to upload images to an S3 bucket. When an image is
 ```json
 [
     {
-        "AllowedHeaders": ["*"],
-        "AllowedMethods": ["GET", "HEAD"],
-        "AllowedOrigins": ["*"],
-        "ExposeHeaders": ["ETag", "Content-Length", "Content-Type"],
+        "AllowedHeaders": [
+            "*"
+        ],
+        "AllowedMethods": [
+            "GET",
+            "POST",
+            "PUT",
+            "HEAD"
+        ],
+        "AllowedOrigins": [
+            "*"
+        ],
+        "ExposeHeaders": [
+            "ETag",
+            "Content-Length",
+            "Content-Type"
+        ],
         "MaxAgeSeconds": 3600
     }
 ]
@@ -136,42 +164,65 @@ This application allows users to upload images to an S3 bucket. When an image is
 
 1. In the **Code** tab, replace the default code with:
 ```python
-import json
+iimport json
 import boto3
 from PIL import Image
 import io
 import os
+from urllib.parse import unquote_plus
 
 s3 = boto3.client('s3')
 
 def lambda_handler(event, context):
     try:
         source_bucket = event['Records'][0]['s3']['bucket']['name']
-        source_key = event['Records'][0]['s3']['object']['key']
+        # URL decode the key to handle spaces and special characters
+        source_key = unquote_plus(event['Records'][0]['s3']['object']['key'])
         
         target_bucket = os.environ.get('TARGET_BUCKET', 'photo-sharing-thumbnails-yourname')
         target_key = f"thumb-{source_key}"
         
+        # Skip if already a thumbnail
         if source_key.startswith('thumb-'):
             return {
                 'statusCode': 200,
                 'body': json.dumps('Skipping thumbnail processing for an existing thumbnail')
             }
         
+        # Get the object from S3
         response = s3.get_object(Bucket=source_bucket, Key=source_key)
         image = Image.open(io.BytesIO(response['Body'].read()))
         
-        image.thumbnail((150, 150))
+        # Convert to RGB if necessary (handles PNG with transparency, etc.)
+        if image.mode in ('RGBA', 'LA', 'P'):
+            # Create white background for transparent images
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            if image.mode == 'P':
+                image = image.convert('RGBA')
+            background.paste(image, mask=image.split()[-1] if image.mode in ('RGBA', 'LA') else None)
+            image = background
+        elif image.mode != 'RGB':
+            image = image.convert('RGB')
         
+        # Create thumbnail
+        image.thumbnail((150, 150), Image.Resampling.LANCZOS)
+        
+        # Save as JPEG
         buffer = io.BytesIO()
-        image.save(buffer, "JPEG")
+        image.save(buffer, "JPEG", quality=85, optimize=True)
         buffer.seek(0)
         
+        # Upload to target bucket
         s3.put_object(
             Bucket=target_bucket,
             Key=target_key,
             Body=buffer,
-            ContentType="image/jpeg"
+            ContentType="image/jpeg",
+            # Add some metadata
+            Metadata={
+                'original-key': source_key,
+                'thumbnail-size': '150x150'
+            }
         )
         
         return {
@@ -180,7 +231,6 @@ def lambda_handler(event, context):
         }
     
     except Exception as e:
-        print(f"Error processing image: {str(e)}")
         return {
             'statusCode': 500,
             'body': json.dumps(f'Error creating thumbnail: {str(e)}')
@@ -190,31 +240,53 @@ def lambda_handler(event, context):
 
 ### Step 7: Add Lambda Layer for PIL/Pillow
 
-1. In the Lambda function page, scroll down to the **Layers** section
-2. Click **Add a layer**
-3. Select **AWS Layers**
-4. Search for and select `Pillow` or `PIL` (Python Imaging Library)
-5. Select the compatible version for Python 3.9
-6. Click **Add**
+## Building PillowLayer for AWS Lambda
 
-If no AWS-provided layer is available for PIL/Pillow, you'll need to create a custom layer:
+This guide explains how to build a PillowLayer for AWS Lambda using Docker with Python 3.9.
 
-1. On your local machine, create a directory for the layer
-2. Install the required packages:
+## Prerequisites
+
+- Docker installed on your machine
+- AWS CLI configured with appropriate permissions
+
+## Building the PillowLayer
+
+1. Run the build script:
+
 ```bash
-mkdir -p python/lib/python3.9/site-packages
-pip install Pillow -t python/lib/python3.9/site-packages
+./build-pillow-layer.sh
 ```
-3. Zip the python directory:
-```bash
-zip -r pillow_layer.zip python
-```
-4. In the Lambda console, go to **Layers** > **Create layer**
-5. Name it `PillowLayer`
-6. Upload the zip file
-7. Select Python 3.9 as the compatible runtime
-8. Click **Create**
-9. Go back to your Lambda function and add this custom layer
+
+This script will:
+- Build a Docker container with Python 3.9
+- Run the container to create the PillowLayer
+- Save the layer as `pillow_layer.zip` in the current directory
+
+### Uploading to AWS Lambda
+
+After building the layer, you can upload it through  Management Console:
+
+1. Go to the AWS Lambda console
+2. Navigate to "Layers" in the left sidebar
+3. Click "Create layer"
+4. Enter "PillowLayer" as the name
+5. Upload the `pillow_layer.zip` file
+6. Select Python 3.9 as the compatible runtime
+7. Click "Create"
+
+### Using the Layer with Your Lambda Function
+
+To use this layer with your Lambda function:
+
+1. Go to your Lambda function in the AWS console
+2. Scroll down to the "Layers" section
+3. Click "Add a layer"
+4. Select "Custom layers"
+5. Select "PillowLayer" and the version you uploaded
+6. Click "Add"
+
+Your Lambda function can now import and use the Pillow library.
+
 
 ### Step 8: Configure Lambda Environment Variables
 
@@ -266,6 +338,28 @@ zip -r pillow_layer.zip python
    - Description: `API for secure access to photo sharing application`
    - Endpoint Type: `Regional`
 5. Click **Create API**
+
+### Create resource for serving Images Publicly
+4. Click Actions → Create Resource
+   - Resource Name: images
+   - Resource Path: `/images`
+5. Click Actions → Create Method
+   - Choose GET → Click the Checkmark
+   - Integration Type: AWS Service
+   - AWS Region: Select your region
+   - AWS Service: S3
+   - HTTP Method: GET
+   - Bucket Name: `photo-sharing-thumbnails-yourname`
+   - Path: `{image}`
+   - Click Save
+6. Deploy the API
+   - Click Actions → Deploy API
+   - Stage Name: prod
+   - Click Deploy
+7. Test your API:
+   ```bash
+   curl https://<your-api-id>.execute-api.<region>.amazonaws.com/prod/images/thumb-sample.jpg
+   ```
 
 #### Create Resource for Presigned URL Generation
 
