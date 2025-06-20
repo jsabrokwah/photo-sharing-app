@@ -1108,50 +1108,7 @@ def lambda_handler(event, context):
 ```
 2. Replace `your-api-id` and `your-region` in the `apiEndpoint` variable with your actual API Gateway ID and region
 
-### Step 16: Host the Web Interface in a Production Environment
-
-#### Option 1: Host in CloudFront with S3 Origin (Recommended for Production)
-
-1. Navigate to **S3** service
-2. Create a new bucket for the website (e.g., `photo-sharing-website-yourname`)
-3. Upload your `index.html` file to this bucket
-4. **DO NOT** make the bucket public or enable static website hosting
-
-5. Navigate to **CloudFront** service
-6. Click **Create Distribution**
-7. Configure the distribution:
-   - Origin Domain: Select your website S3 bucket
-   - Origin Access: Select **Origin access control settings (recommended)**
-   - Create a new OAC: Click **Create control setting**
-   - Default cache behavior: 
-     - Viewer protocol policy: **Redirect HTTP to HTTPS**
-     - Allowed HTTP methods: **GET, HEAD, OPTIONS**
-     - Cache policy: **CachingOptimized**
-     - Origin request policy: **CORS-S3Origin**
-   - Web Application Firewall (WAF): **Enable security protections**
-   - Default root object: `index.html`
-   - Standard logging: **On** (recommended for production)
-8. Click **Create distribution**
-9. After the distribution is created, copy the policy provided by CloudFront
-10. Go back to your S3 bucket, navigate to the **Permissions** tab, and update the bucket policy with the CloudFront policy
-11. Access your website using the CloudFront domain name (e.g., `d1234abcdef.cloudfront.net`)
-
-#### Option 2: Host with AWS Amplify (Alternative for Production)
-
-1. Navigate to **AWS Amplify** service
-2. Click **New app** > **Host web app**
-3. Select **Deploy without Git provider** (for production, consider connecting to a Git repository for CI/CD)
-4. Click **Continue**
-5. Enter your app name (e.g., `PhotoSharingApp`)
-6. Drag and drop your `index.html` file (and any other assets)
-7. Click **Save and deploy**
-8. Configure custom domain (recommended for production):
-   - Go to **Domain management**
-   - Click **Add domain**
-   - Enter your domain name and follow the verification steps
-9. Enable branch protection and access control for production environments
-
-### Step 17: Set Up CloudWatch Monitoring and Alarms
+### Step 16: Set Up CloudWatch Monitoring and Alarms
 
 1. Navigate to **CloudWatch** service
 2. Create a dashboard for your application:
@@ -1183,7 +1140,7 @@ def lambda_handler(event, context):
    - Name the metric filter `LambdaTimeouts`
    - Create an alarm based on this metric
 
-### Step 18: Implement Security Best Practices
+### Step 17: Implement Security Best Practices
 
 1. **Enable AWS WAF for API Gateway**:
    - Navigate to **WAF & Shield** service
@@ -1206,7 +1163,7 @@ def lambda_handler(event, context):
    - Create a trail that logs all API calls
    - Store logs in a dedicated S3 bucket with appropriate retention policies
 
-### Step 19: Implement Disaster Recovery
+### Step 18: Implement Disaster Recovery
 
 1. **Set up S3 Cross-Region Replication**:
    - Go to your source and thumbnail S3 buckets
