@@ -33,7 +33,7 @@ def lambda_handler(event, context):
                 })
             }
         
-        bucket_name = "photo-sharing-app-jsabrokwah"
+        bucket_name = "photo-sharing-app-yourname"
         
         # Generate unique filename to avoid conflicts
         unique_filename = f"{uuid.uuid4()}-{file_name}"
