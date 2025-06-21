@@ -242,7 +242,7 @@ def lambda_handler(event, context):
 
 ## Building PillowLayer for AWS Lambda
 
-This guide explains how to build a PillowLayer for AWS Lambda using Docker with Python 3.9.
+This guide explains how to build a PillowLayer for AWS Lambda using Docker with Python 3.9 runtime.
 
 ## Prerequisites
 
